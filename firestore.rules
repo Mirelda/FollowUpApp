@@ -1,0 +1,59 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Kullanıcı dokümanları
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      
+      // Hasta dokümanları
+      match /patients/{patientId} {
+        allow read, write: if request.auth != null && (
+          request.auth.uid == userId || 
+          exists(/databases/$(database)/documents/users/$(userId)/patients/$(patientId)/sharedWith/$(request.auth.uid))
+        );
+        allow create: if request.auth != null && request.auth.token.email == request.resource.data.owner;
+        allow update: if request.auth != null && (
+          request.auth.uid == userId ||
+          exists(/databases/$(database)/documents/users/$(userId)/patients/$(patientId)/sharedWith/$(request.auth.uid))
+        );
+        allow delete: if request.auth != null && request.auth.token.email == request.resource.data.owner;
+      }
+      
+      match /medicines/{medicineId} {
+        allow read, write: if request.auth != null && (
+          request.auth.uid == userId ||
+          exists(/databases/$(database)/documents/users/$(userId)/patients/$(patientId)/sharedWith/$(request.auth.uid))
+        );
+      }
+      
+      match /vitals/{vitalId} {
+        allow read, write: if request.auth != null && (
+          request.auth.uid == userId ||
+          exists(/databases/$(database)/documents/users/$(userId)/patients/$(patientId)/sharedWith/$(request.auth.uid))
+        );
+      }
+      
+      match /devices/{deviceId} {
+        allow read, write: if request.auth != null && (
+          request.auth.uid == userId ||
+          exists(/databases/$(database)/documents/users/$(userId)/patients/$(patientId)/sharedWith/$(request.auth.uid))
+        );
+      }
+      
+      match /medicineStatus/{statusId} {
+        allow read, write: if request.auth != null && (
+          request.auth.uid == userId ||
+          exists(/databases/$(database)/documents/users/$(userId)/patients/$(patientId)/sharedWith/$(request.auth.uid))
+        );
+      }
+      
+      match /sharedWith/{sharedUserId} {
+        allow read: if request.auth != null && (
+          request.auth.uid == userId ||
+          request.auth.uid == sharedUserId
+        );
+        allow write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+  }
+} 
