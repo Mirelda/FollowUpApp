@@ -5,6 +5,7 @@ import { collection, addDoc, getDocs, query, where, Timestamp } from 'firebase/f
 import { auth, db } from '../lib/firebase';
 import Link from 'next/link';
 import { Plus, LogOut, User } from 'lucide-react';
+import SharePatientModal from '../components/SharePatientModal';
 
 interface Patient {
   id: string;
@@ -21,12 +22,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const router = useRouter();
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [selectedPatient, setSelectedPatient] = useState<Patient | null>(null);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUser(user);
-        loadPatients(user.uid, user.email);
+        loadPatients(user.email);
       } else {
         router.push('/login');
       }
@@ -35,18 +38,13 @@ export default function Dashboard() {
     return () => unsubscribe();
   }, [router]);
 
-  const loadPatients = async (uid: string, userEmail: string | null) => {
+  const loadPatients = async (userEmail: string | null) => {
     if (!userEmail) return;
-
     try {
-      // Kullanıcının sahip olduğu hastaları yükle
-      const patientsRef = collection(db, 'users', uid, 'patients');
-      const ownedQ = query(
-        patientsRef,
-        where('owner', '==', userEmail)
-      );
+      // Tüm hastaları ana koleksiyondan yükle
+      const patientsRef = collection(db, 'patients');
+      const ownedQ = query(patientsRef, where('owner', '==', userEmail));
       const ownedSnapshot = await getDocs(ownedQ);
-      
       const ownedList = ownedSnapshot.docs.map(doc => ({
         id: doc.id,
         name: doc.data().name || '',
@@ -54,14 +52,9 @@ export default function Dashboard() {
         sharedWith: Array.isArray(doc.data().sharedWith) ? doc.data().sharedWith : [],
         createdAt: doc.data().createdAt?.toDate() || new Date()
       })) as Patient[];
-
       // Paylaşılan hastaları yükle
-      const sharedQ = query(
-        patientsRef,
-        where('sharedWith', 'array-contains', userEmail)
-      );
+      const sharedQ = query(patientsRef, where('sharedWith', 'array-contains', userEmail));
       const sharedSnapshot = await getDocs(sharedQ);
-      
       const sharedList = sharedSnapshot.docs.map(doc => ({
         id: doc.id,
         name: doc.data().name || '',
@@ -69,7 +62,6 @@ export default function Dashboard() {
         sharedWith: Array.isArray(doc.data().sharedWith) ? doc.data().sharedWith : [],
         createdAt: doc.data().createdAt?.toDate() || new Date()
       })) as Patient[];
-
       setPatients([...ownedList, ...sharedList]);
     } catch (error) {
       console.error('Hastalar yüklenirken hata oluştu:', error);
@@ -85,16 +77,14 @@ export default function Dashboard() {
       setError('Hasta adı boş olamaz');
       return;
     }
-
     try {
-      const patientsRef = collection(db, 'users', user.uid, 'patients');
+      const patientsRef = collection(db, 'patients');
       const docRef = await addDoc(patientsRef, {
         name: newPatientName.trim(),
         owner: user.email,
         sharedWith: [],
         createdAt: Timestamp.now()
       });
-
       setPatients([...patients, {
         id: docRef.id,
         name: newPatientName.trim(),
@@ -102,7 +92,6 @@ export default function Dashboard() {
         sharedWith: [],
         createdAt: new Date()
       }]);
-
       setNewPatientName('');
       setError('');
     } catch (error) {
@@ -182,14 +171,8 @@ export default function Dashboard() {
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {patients.map((patient) => (
-                  <Link
-                    key={patient.id}
-                    href={`/patient/${patient.id}`}
-                    className="block p-6 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors hover:shadow-md"
-                  >
-                    <h4 className="text-lg font-medium text-gray-900">
-                      {patient.name}
-                    </h4>
+                  <div key={patient.id} className="block p-6 bg-gray-50 rounded-2xl hover:bg-gray-100 transition-colors hover:shadow-md">
+                    <h4 className="text-lg font-medium text-gray-900">{patient.name}</h4>
                     <p className="text-sm text-gray-500 mt-1">
                       {patient.owner === user?.email ? 'Sahibi: Siz' : `Sahibi: ${patient.owner}`}
                     </p>
@@ -198,13 +181,35 @@ export default function Dashboard() {
                         {patient.sharedWith.length} kişiyle paylaşıldı
                       </p>
                     )}
-                  </Link>
+                    <div className="flex gap-2 mt-4">
+                      <Link
+                        href={`/patient/${patient.id}`}
+                        className="inline-block px-4 py-2 bg-indigo-600 text-white rounded-md text-sm hover:bg-indigo-700"
+                      >
+                        Detay
+                      </Link>
+                      {patient.owner === user?.email && (
+                        <button
+                          onClick={() => { setSelectedPatient(patient); setShareModalOpen(true); }}
+                          className="inline-block px-4 py-2 bg-blue-600 text-white rounded-md text-sm hover:bg-blue-700"
+                        >
+                          Paylaş
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 ))}
               </div>
             )}
           </div>
         </div>
       </main>
+      <SharePatientModal
+        isOpen={shareModalOpen}
+        onClose={() => setShareModalOpen(false)}
+        patientId={selectedPatient?.id || ''}
+        sharedWith={selectedPatient?.sharedWith || []}
+      />
     </div>
   );
 } 

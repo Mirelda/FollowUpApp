@@ -4,7 +4,7 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { doc, getDoc, collection, addDoc, getDocs, deleteDoc, updateDoc, query, where, setDoc } from 'firebase/firestore';
 import { auth, db } from '../../../lib/firebase';
 import Link from 'next/link';
-import { ArrowLeft, Plus, Trash2, Check, Download } from 'lucide-react';
+import { ArrowLeft, Plus, Trash2, Check, Download, FileDown, X } from 'lucide-react';
 import { PDFExport } from '../../../components/PDFExport';
 
 interface Medicine {
@@ -21,6 +21,12 @@ interface MedicineStatus {
   };
 }
 
+function getLocalToday() {
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  return now.toISOString().split('T')[0];
+}
+
 export default function MedicinePage() {
   const [user, setUser] = useState<any>(null);
   const [patient, setPatient] = useState<any>(null);
@@ -30,15 +36,13 @@ export default function MedicinePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showPDF, setShowPDF] = useState(false);
+  const [filteredPDFData, setFilteredPDFData] = useState<any[]>([]);
+  const [showAddModal, setShowAddModal] = useState(false);
   const router = useRouter();
   const { id } = router.query;
 
-  // Son 7 günün tarihlerini oluştur
-  const dates = Array.from({ length: 7 }, (_, i) => {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    return date.toISOString().split('T')[0];
-  }).reverse();
+  // const dates = [new Date().toISOString().split('T')[0]];
+  const dates = [getLocalToday()];
 
   // Tüm saat seçenekleri
   const availableHours = Array.from({ length: 24 }, (_, i) => {
@@ -46,14 +50,18 @@ export default function MedicinePage() {
     return `${hour}:00`;
   });
 
+  // State'e tarih aralığı ekle
+  const [startDate, setStartDate] = useState<string>(() => getLocalToday());
+  const [endDate, setEndDate] = useState<string>(() => getLocalToday());
+
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       if (user) {
         setUser(user);
         if (id) {
           loadPatient(user.uid, id as string);
-          loadMedicines(user.uid, id as string);
-          loadMedicineStatus(user.uid, id as string);
+          loadMedicines(id as string);
+          loadMedicineStatus(id as string);
         }
       } else {
         router.push('/login');
@@ -63,9 +71,18 @@ export default function MedicinePage() {
     return () => unsubscribe();
   }, [router, id]);
 
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const today = getLocalToday();
+      setStartDate(prev => (prev !== today ? today : prev));
+      setEndDate(prev => (prev !== today ? today : prev));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
   const loadPatient = async (uid: string, patientId: string) => {
     try {
-      const patientRef = doc(db, 'users', uid, 'patients', patientId);
+      const patientRef = doc(db, 'patients', patientId);
       const patientDoc = await getDoc(patientRef);
       
       if (patientDoc.exists()) {
@@ -82,9 +99,9 @@ export default function MedicinePage() {
     }
   };
 
-  const loadMedicines = async (uid: string, patientId: string) => {
+  const loadMedicines = async (patientId: string) => {
     try {
-      const medicinesRef = collection(db, 'users', uid, 'patients', patientId, 'medicines');
+      const medicinesRef = collection(db, 'patients', patientId, 'medicines');
       const querySnapshot = await getDocs(medicinesRef);
       const medicineList = querySnapshot.docs.map(doc => ({
         id: doc.id,
@@ -97,9 +114,9 @@ export default function MedicinePage() {
     }
   };
 
-  const loadMedicineStatus = async (uid: string, patientId: string) => {
+  const loadMedicineStatus = async (patientId: string) => {
     try {
-      const statusRef = collection(db, 'users', uid, 'patients', patientId, 'medicineStatus');
+      const statusRef = collection(db, 'patients', patientId, 'medicineStatus');
       const querySnapshot = await getDocs(statusRef);
       const status: MedicineStatus = {};
       
@@ -124,7 +141,7 @@ export default function MedicinePage() {
     if (!newMedicine.name.trim() || !user || !id) return;
 
     try {
-      const medicinesRef = collection(db, 'users', user.uid, 'patients', id as string, 'medicines');
+      const medicinesRef = collection(db, 'patients', id as string, 'medicines');
       const docRef = await addDoc(medicinesRef, {
         name: newMedicine.name.trim(),
         hours: newMedicine.hours
@@ -148,11 +165,11 @@ export default function MedicinePage() {
 
     try {
       // İlacı sil
-      const medicineRef = doc(db, 'users', user.uid, 'patients', id as string, 'medicines', medicineId);
+      const medicineRef = doc(db, 'patients', id as string, 'medicines', medicineId);
       await deleteDoc(medicineRef);
 
       // İlaç durumlarını sil
-      const statusRef = collection(db, 'users', user.uid, 'patients', id as string, 'medicineStatus');
+      const statusRef = collection(db, 'patients', id as string, 'medicineStatus');
       const statusQuery = query(statusRef, where('medicineId', '==', medicineId));
       const statusSnapshot = await getDocs(statusQuery);
       
@@ -181,7 +198,7 @@ export default function MedicinePage() {
 
     try {
       const statusId = `${date}_${medicineId}_${hour}`;
-      const statusRef = doc(db, 'users', user.uid, 'patients', id as string, 'medicineStatus', statusId);
+      const statusRef = doc(db, 'patients', id as string, 'medicineStatus', statusId);
       
       await setDoc(statusRef, {
         taken,
@@ -208,19 +225,26 @@ export default function MedicinePage() {
   };
 
   const handleExportPDF = () => {
-    // İlaç durumlarını PDF için uygun formata dönüştür
-    const pdfData = Object.entries(medicineStatus).flatMap(([date, medicineStatus]) => 
-      Object.entries(medicineStatus).flatMap(([medicineId, hourStatus]) => 
-        Object.entries(hourStatus).map(([hour, taken]) => ({
-          id: `${date}_${medicineId}_${hour}`,
+    // Seçilen tarih aralığını oluştur
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const filteredDates: string[] = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      filteredDates.push(new Date(d).toISOString().split('T')[0]);
+    }
+    // Sadece seçilen aralıktaki verileri PDF'e aktar
+    const pdfData = filteredDates.flatMap(date =>
+      medicines.flatMap(medicine =>
+        medicine.hours.map(hour => ({
           date,
-          medicineName: medicines.find(m => m.id === medicineId)?.name || '',
+          medicineName: medicine.name,
           hour,
-          taken
+          taken: medicineStatus[date]?.[medicine.id]?.[hour] || false
         }))
       )
     );
     setShowPDF(true);
+    setFilteredPDFData(pdfData);
   };
 
   if (loading) {
@@ -244,148 +268,203 @@ export default function MedicinePage() {
 
   if (showPDF) {
     return (
-      <PDFExport
-        data={Object.entries(medicineStatus).flatMap(([date, medicineStatus]) => 
-          Object.entries(medicineStatus).flatMap(([medicineId, hourStatus]) => 
-            Object.entries(hourStatus).map(([hour, taken]) => ({
-              id: `${date}_${medicineId}_${hour}`,
-              date,
-              medicineName: medicines.find(m => m.id === medicineId)?.name || '',
-              hour,
-              taken
-            }))
-          )
-        )}
-        title={`${patient?.name} - İlaç Takibi`}
-        type="medicine"
-      />
+      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg w-full max-w-4xl h-[80vh]">
+          <div className="p-4 border-b flex justify-between items-center">
+            <h3 className="text-lg font-medium">PDF Önizleme</h3>
+            <button
+              onClick={() => setShowPDF(false)}
+              className="text-gray-400 hover:text-gray-500"
+            >
+              <X className="h-6 w-6" />
+            </button>
+          </div>
+          <div className="h-[calc(80vh-4rem)]">
+            <PDFExport
+              data={filteredPDFData}
+              title={`${patient?.name} - İlaç Takibi`}
+              type="medicine"
+            />
+          </div>
+        </div>
+      </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <nav className="bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between h-16">
-            <div className="flex items-center">
-              <Link href={`/patient/${id}`} className="text-gray-700 hover:text-gray-900 mr-4 flex items-center">
-                <ArrowLeft className="w-5 h-5 mr-2" />
-                Geri
-              </Link>
-              <h1 className="text-xl font-semibold text-gray-900">{patient?.name} - İlaç Takibi</h1>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        {/* Üst Bilgi Kartı */}
+        <div className="bg-white rounded-lg shadow-sm p-6 mb-8">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h1 className="text-2xl font-semibold text-gray-900">{patient?.name}</h1>
+              <p className="text-gray-600 mt-1">İlaç Takibi</p>
             </div>
-            <button
-              onClick={handleExportPDF}
-              className="bg-primary-50 text-primary-600 px-4 py-2 rounded-xl hover:bg-primary-100 transition-colors flex items-center"
-            >
-              <Download className="w-5 h-5 mr-2" />
-              PDF İndir
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      <main className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
-        <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
-          <h2 className="text-lg font-semibold text-gray-900 mb-4">Yeni İlaç Ekle</h2>
-          <form onSubmit={handleAddMedicine} className="flex flex-col gap-4">
-            <div className="flex gap-4">
-              <div className="flex-1">
-                <input
-                  type="text"
-                  value={newMedicine.name}
-                  onChange={(e) => setNewMedicine({ ...newMedicine, name: e.target.value })}
-                  placeholder="İlaç adı"
-                  className="w-full rounded-xl border-gray-200 shadow-sm focus:border-primary-500 focus:ring-primary-500"
-                />
-              </div>
+            <div className="flex flex-wrap gap-3">
               <button
-                type="submit"
-                className="bg-primary-50 text-primary-600 px-6 py-2 rounded-xl hover:bg-primary-100 transition-colors flex items-center"
+                onClick={() => router.push(`/patient/${id}`)}
+                className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
-                <Plus className="w-5 h-5 mr-2" />
-                Ekle
+                <ArrowLeft className="h-5 w-5 mr-2" />
+                Geri Dön
+              </button>
+              <button
+                onClick={() => setShowAddModal(true)}
+                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                <Plus className="h-5 w-5 mr-2" />
+                Yeni İlaç Ekle
               </button>
             </div>
-            <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-gray-50 rounded-lg">
-              {availableHours.map(hour => (
-                <label key={hour} className="inline-flex items-center px-3 py-2 bg-white rounded-lg shadow-sm hover:bg-gray-50">
-                  <input
-                    type="checkbox"
-                    checked={newMedicine.hours.includes(hour)}
-                    onChange={(e) => {
-                      if (e.target.checked) {
-                        setNewMedicine({
-                          ...newMedicine,
-                          hours: [...newMedicine.hours, hour]
-                        });
-                      } else {
-                        setNewMedicine({
-                          ...newMedicine,
-                          hours: newMedicine.hours.filter(h => h !== hour)
-                        });
-                      }
-                    }}
-                    className="form-checkbox h-5 w-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
-                  />
-                  <span className="ml-2 text-sm text-gray-600">{hour}</span>
-                </label>
-              ))}
-            </div>
-          </form>
+          </div>
         </div>
 
-        {medicines.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-sm p-6 overflow-x-auto">
-            <table className="min-w-full">
-              <thead>
-                <tr>
-                  <th className="px-4 py-2 border-b text-left">Tarih</th>
-                  {medicines.map(medicine => (
-                    medicine.hours.map(hour => (
-                      <th key={`${medicine.id}-${hour}`} className="px-4 py-2 border-b">
-                        <div className="flex flex-col items-center justify-center">
-                          <span className="text-sm font-medium text-center">{medicine.name}</span>
-                          <span className="text-xs text-gray-500">{hour}</span>
-                          <button
-                            onClick={() => handleDeleteMedicine(medicine.id)}
-                            className="text-red-500 hover:text-red-700 mt-1"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </th>
-                    ))
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {dates.map(date => (
-                  <tr key={date}>
-                    <td className="px-4 py-2 border-b">
-                      {new Date(date).toLocaleDateString('tr-TR')}
-                    </td>
-                    {medicines.map(medicine => (
-                      medicine.hours.map(hour => (
-                        <td key={`${date}-${medicine.id}-${hour}`} className="px-4 py-2 border-b">
-                          <div className="flex items-center justify-center">
-                            <input
-                              type="checkbox"
-                              checked={medicineStatus[date]?.[medicine.id]?.[hour] || false}
-                              onChange={(e) => handleStatusChange(date, medicine.id, hour, e.target.checked)}
-                              className="form-checkbox h-5 w-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
-                            />
-                          </div>
-                        </td>
-                      ))
-                    ))}
-                  </tr>
+        {/* Ana Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          {/* Sol Kolon - İlaç Listesi */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* İlaç Listesi Kartı */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <div className="flex justify-between items-center mb-6">
+                <h2 className="text-xl font-semibold text-gray-900">İlaç Listesi</h2>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                    />
+                    <span className="text-gray-500">-</span>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
+                    />
+                  </div>
+                  <button
+                    onClick={handleExportPDF}
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                  >
+                    <FileDown className="h-5 w-5 mr-2" />
+                    PDF İndir
+                  </button>
+                </div>
+              </div>
+              <div className="space-y-4">
+                {medicines.map(medicine => (
+                  <div key={medicine.id} className="bg-gray-50 rounded-lg p-4 mb-2">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium text-gray-900">{medicine.name}</span>
+                      <button
+                        onClick={() => handleDeleteMedicine(medicine.id)}
+                        className="text-red-500 hover:text-red-700"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {medicine.hours.map(hour => (
+                        <button
+                          key={hour}
+                          type="button"
+                          onClick={() => handleStatusChange(startDate, medicine.id, hour, !(medicineStatus[startDate]?.[medicine.id]?.[hour] || false))}
+                          className={`px-3 py-1 rounded-full text-xs font-medium border transition-colors
+                            ${medicineStatus[startDate]?.[medicine.id]?.[hour] ? 'bg-green-100 text-green-800 border-green-300' : 'bg-gray-100 text-gray-800 border-gray-300'}`}
+                        >
+                          {hour} {medicineStatus[startDate]?.[medicine.id]?.[hour] ? '✓' : ''}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            </div>
           </div>
-        )}
-      </main>
+
+          {/* Sağ Kolon - İlaç İstatistikleri */}
+          <div className="space-y-8">
+            {/* İlaç İstatistikleri Kartı */}
+            <div className="bg-white rounded-lg shadow-sm p-6">
+              <h2 className="text-xl font-semibold text-gray-900 mb-6">İlaç İstatistikleri</h2>
+              <div className="space-y-4">
+                {dates.map(date => (
+                  <div key={date} className="flex justify-between items-center">
+                    <span className="text-sm font-medium text-gray-900">{new Date(date).toLocaleDateString('tr-TR')}</span>
+                    <span className="text-sm font-medium text-gray-500">{Object.keys(medicineStatus[date] || {}).length} ilaç</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Modaller */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg w-full max-w-md">
+            <div className="p-4 border-b flex justify-between items-center">
+              <h3 className="text-lg font-medium">Yeni İlaç Ekle</h3>
+              <button
+                onClick={() => setShowAddModal(false)}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <X className="h-6 w-6" />
+              </button>
+            </div>
+            <div className="p-4">
+              <form onSubmit={handleAddMedicine} className="flex flex-col gap-4">
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <input
+                      type="text"
+                      value={newMedicine.name}
+                      onChange={(e) => setNewMedicine({ ...newMedicine, name: e.target.value })}
+                      placeholder="İlaç adı"
+                      className="w-full rounded-xl border-gray-200 shadow-sm focus:border-primary-500 focus:ring-primary-500"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    className="bg-primary-50 text-primary-600 px-6 py-2 rounded-xl hover:bg-primary-100 transition-colors flex items-center"
+                  >
+                    <Plus className="w-5 h-5 mr-2" />
+                    Ekle
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2 max-h-40 overflow-y-auto p-2 bg-gray-50 rounded-lg">
+                  {availableHours.map(hour => (
+                    <label key={hour} className="inline-flex items-center px-3 py-2 bg-white rounded-lg shadow-sm hover:bg-gray-50">
+                      <input
+                        type="checkbox"
+                        checked={newMedicine.hours.includes(hour)}
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setNewMedicine({
+                              ...newMedicine,
+                              hours: [...newMedicine.hours, hour]
+                            });
+                          } else {
+                            setNewMedicine({
+                              ...newMedicine,
+                              hours: newMedicine.hours.filter(h => h !== hour)
+                            });
+                          }
+                        }}
+                        className="form-checkbox h-5 w-5 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+                      />
+                      <span className="ml-2 text-sm text-gray-600">{hour}</span>
+                    </label>
+                  ))}
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 } 

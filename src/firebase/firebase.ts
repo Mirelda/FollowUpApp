@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, browserLocalPersistence } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -11,20 +11,6 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID
 };
 
-// Firebase'i başlat
 const app = initializeApp(firebaseConfig);
-
-// Auth ve Firestore örneklerini oluştur
 export const auth = getAuth(app);
-export const db = getFirestore(app);
-
-// Oturum süresini 1 saat olarak ayarla
-auth.settings = {
-  sessionTimeoutDuration: 3600000, // 1 saat
-};
-
-// Oturum kalıcılığını ayarla
-auth.setPersistence(browserLocalPersistence)
-  .catch((error) => {
-    console.error('Oturum kalıcılığı ayarlanırken hata oluştu:', error);
-  }); 
+export const db = getFirestore(app); 

@@ -74,7 +74,7 @@ const styles = StyleSheet.create({
 interface PDFExportProps {
   data: any[];
   title: string;
-  type: 'medicine' | 'device' | 'vitals';
+  type: 'medicine' | 'device' | 'vitals' | 'summary';
 }
 
 export function PDFExport({ data, title, type }: PDFExportProps) {
@@ -89,83 +89,176 @@ export function PDFExport({ data, title, type }: PDFExportProps) {
             </Text>
           </View>
 
-          <View style={styles.table}>
-            {type === 'medicine' && (
-              <>
-                <View style={[styles.tableRow, styles.tableHeader]}>
-                  <Text style={styles.tableCell}>Tarih</Text>
-                  <Text style={styles.tableCell}>İlaç</Text>
-                  <Text style={styles.tableCell}>Saat</Text>
-                  <Text style={styles.tableCell}>Durum</Text>
-                </View>
-                {data.map((record) => (
-                  <View key={record.id} style={styles.tableRow}>
-                    <Text style={styles.tableCell}>{record.date}</Text>
-                    <Text style={styles.tableCell}>{record.medicineName}</Text>
-                    <Text style={styles.tableCell}>{record.hour}</Text>
-                    <Text style={[styles.tableCell, styles.status, record.taken ? styles.statusNormal : styles.statusCritical]}>
-                      {record.taken ? 'Alındı' : 'Alınmadı'}
-                    </Text>
+          {type === 'summary' ? (
+            data.map((day, i) => (
+              <View key={day.date + i} style={{ marginBottom: 24 }}>
+                <Text style={{ fontSize: 16, fontWeight: 'bold', marginBottom: 6 }}>{day.date}</Text>
+                {/* Vital Tablosu */}
+                {day.vitals && day.vitals.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 12, fontWeight: 'bold', marginBottom: 2 }}>Vital Değerler</Text>
+                    <View style={styles.table}>
+                      <View style={[styles.tableRow, styles.tableHeader]}>
+                        <Text style={styles.tableCell}>Saat</Text>
+                        <Text style={styles.tableCell}>Sıcaklık</Text>
+                        <Text style={styles.tableCell}>Tansiyon</Text>
+                        <Text style={styles.tableCell}>O2 Sat</Text>
+                        <Text style={styles.tableCell}>Mama</Text>
+                        <Text style={styles.tableCell}>Su</Text>
+                        <Text style={styles.tableCell}>Notlar</Text>
+                      </View>
+                      {day.vitals.map((record: any, idx: number) => (
+                        <View key={idx} style={styles.tableRow}>
+                          <Text style={styles.tableCell}>{record.time}</Text>
+                          <Text style={styles.tableCell}>{record.temperature}°C</Text>
+                          <Text style={styles.tableCell}>{record.bloodPressure?.systolic}/{record.bloodPressure?.diastolic}</Text>
+                          <Text style={styles.tableCell}>%{record.oxygenSaturation}</Text>
+                          <Text style={styles.tableCell}>{record.formulaAmount} ml</Text>
+                          <Text style={styles.tableCell}>{record.waterAmount} ml</Text>
+                          <Text style={styles.tableCell}>{record.notes}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
+                {/* Cihaz Tablosu */}
+                {day.devices && day.devices.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 12, fontWeight: 'bold', marginTop: 8, marginBottom: 2 }}>Cihaz Kayıtları</Text>
+                    <View style={styles.table}>
+                      <View style={[styles.tableRow, styles.tableHeader]}>
+                        <Text style={styles.tableCell}>Saat</Text>
+                        <Text style={styles.tableCell}>Cihaz</Text>
+                        <Text style={styles.tableCell}>Durum</Text>
+                        <Text style={styles.tableCell}>Notlar</Text>
+                      </View>
+                      {day.devices.map((record: any, idx: number) => (
+                        <View key={idx} style={styles.tableRow}>
+                          <Text style={styles.tableCell}>{record.time}</Text>
+                          <Text style={styles.tableCell}>
+                            {record.deviceType === 'monitor' ? 'Monitor' : 
+                             record.deviceType === 'pulse' ? 'Nabız Ölçer' : 
+                             record.deviceType === 'oxygen' ? 'Oksijen Ölçer' : 'Diğer'}
+                          </Text>
+                          <Text style={[styles.tableCell, styles.status, 
+                            record.status === 'normal' ? styles.statusNormal :
+                            record.status === 'warning' ? styles.statusWarning :
+                            styles.statusCritical
+                          ]}>
+                            {record.status === 'normal' ? 'Normal' : 
+                             record.status === 'warning' ? 'Uyarı' : 'Kritik'}
+                          </Text>
+                          <Text style={styles.tableCell}>{record.notes}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  </>
+                )}
+                {/* İlaç Tablosu */}
+                {day.medicines && day.medicines.length > 0 && (
+                  <>
+                    <Text style={{ fontSize: 12, fontWeight: 'bold', marginTop: 8, marginBottom: 2 }}>İlaç Takibi</Text>
+                    <View style={styles.table}>
+                      <View style={[styles.tableRow, styles.tableHeader]}>
+                        <Text style={styles.tableCell}>İlaç</Text>
+                        <Text style={styles.tableCell}>Saat</Text>
+                        <Text style={styles.tableCell}>Durum</Text>
+                      </View>
+                      {day.medicines.map((medicine: any, idx: number) => (
+                        medicine.hours.map((hour: string, hidx: number) => (
+                          <View key={medicine.name + hour + hidx} style={styles.tableRow}>
+                            <Text style={styles.tableCell}>{medicine.name}</Text>
+                            <Text style={styles.tableCell}>{hour}</Text>
+                            <Text style={[styles.tableCell, styles.status, (day.medicineStatus[medicine.id]?.[hour]) ? styles.statusNormal : styles.statusCritical]}>
+                              {(day.medicineStatus[medicine.id]?.[hour]) ? 'Alındı' : 'Alınmadı'}
+                            </Text>
+                          </View>
+                        ))
+                      ))}
+                    </View>
+                  </>
+                )}
+              </View>
+            ))
+          ) : (
+            <View style={styles.table}>
+              {type === 'medicine' && (
+                <>
+                  <View style={[styles.tableRow, styles.tableHeader]}>
+                    <Text style={styles.tableCell}>Tarih</Text>
+                    <Text style={styles.tableCell}>İlaç</Text>
+                    <Text style={styles.tableCell}>Saat</Text>
+                    <Text style={styles.tableCell}>Durum</Text>
                   </View>
-                ))}
-              </>
-            )}
+                  {data.map((record) => (
+                    <View key={record.id} style={styles.tableRow}>
+                      <Text style={styles.tableCell}>{record.date}</Text>
+                      <Text style={styles.tableCell}>{record.medicineName}</Text>
+                      <Text style={styles.tableCell}>{record.hour}</Text>
+                      <Text style={[styles.tableCell, styles.status, record.taken ? styles.statusNormal : styles.statusCritical]}>
+                        {record.taken ? 'Alındı' : 'Alınmadı'}
+                      </Text>
+                    </View>
+                  ))}
+                </>
+              )}
 
-            {type === 'device' && (
-              <>
-                <View style={[styles.tableRow, styles.tableHeader]}>
-                  <Text style={styles.tableCell}>Tarih/Saat</Text>
-                  <Text style={styles.tableCell}>Cihaz</Text>
-                  <Text style={styles.tableCell}>Durum</Text>
-                  <Text style={styles.tableCell}>Notlar</Text>
-                </View>
-                {data.map((record) => (
-                  <View key={record.id} style={styles.tableRow}>
-                    <Text style={styles.tableCell}>{record.date} {record.time}</Text>
-                    <Text style={styles.tableCell}>
-                      {record.deviceType === 'monitor' ? 'Monitor' : 
-                       record.deviceType === 'pulse' ? 'Nabız Ölçer' : 
-                       record.deviceType === 'oxygen' ? 'Oksijen Ölçer' : 'Diğer'}
-                    </Text>
-                    <Text style={[styles.tableCell, styles.status, 
-                      record.status === 'normal' ? styles.statusNormal :
-                      record.status === 'warning' ? styles.statusWarning :
-                      styles.statusCritical
-                    ]}>
-                      {record.status === 'normal' ? 'Normal' : 
-                       record.status === 'warning' ? 'Uyarı' : 'Kritik'}
-                    </Text>
-                    <Text style={styles.tableCell}>{record.notes}</Text>
+              {type === 'device' && (
+                <>
+                  <View style={[styles.tableRow, styles.tableHeader]}>
+                    <Text style={styles.tableCell}>Tarih/Saat</Text>
+                    <Text style={styles.tableCell}>Cihaz</Text>
+                    <Text style={styles.tableCell}>Durum</Text>
+                    <Text style={styles.tableCell}>Notlar</Text>
                   </View>
-                ))}
-              </>
-            )}
+                  {data.map((record) => (
+                    <View key={record.id} style={styles.tableRow}>
+                      <Text style={styles.tableCell}>{record.date} {record.time}</Text>
+                      <Text style={styles.tableCell}>
+                        {record.deviceType === 'monitor' ? 'Monitor' : 
+                         record.deviceType === 'pulse' ? 'Nabız Ölçer' : 
+                         record.deviceType === 'oxygen' ? 'Oksijen Ölçer' : 'Diğer'}
+                      </Text>
+                      <Text style={[styles.tableCell, styles.status, 
+                        record.status === 'normal' ? styles.statusNormal :
+                        record.status === 'warning' ? styles.statusWarning :
+                        styles.statusCritical
+                      ]}>
+                        {record.status === 'normal' ? 'Normal' : 
+                         record.status === 'warning' ? 'Uyarı' : 'Kritik'}
+                      </Text>
+                      <Text style={styles.tableCell}>{record.notes}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
 
-            {type === 'vitals' && (
-              <>
-                <View style={[styles.tableRow, styles.tableHeader]}>
-                  <Text style={styles.tableCell}>Tarih/Saat</Text>
-                  <Text style={styles.tableCell}>Sıcaklık</Text>
-                  <Text style={styles.tableCell}>Tansiyon</Text>
-                  <Text style={styles.tableCell}>O2 Sat</Text>
-                  <Text style={styles.tableCell}>Mama</Text>
-                  <Text style={styles.tableCell}>Su</Text>
-                  <Text style={styles.tableCell}>Notlar</Text>
-                </View>
-                {data.map((record) => (
-                  <View key={record.id} style={styles.tableRow}>
-                    <Text style={styles.tableCell}>{record.date} {record.time}</Text>
-                    <Text style={styles.tableCell}>{record.temperature}°C</Text>
-                    <Text style={styles.tableCell}>{record.bloodPressure.systolic}/{record.bloodPressure.diastolic}</Text>
-                    <Text style={styles.tableCell}>%{record.oxygenSaturation}</Text>
-                    <Text style={styles.tableCell}>{record.formulaAmount} ml</Text>
-                    <Text style={styles.tableCell}>{record.waterAmount} ml</Text>
-                    <Text style={styles.tableCell}>{record.notes}</Text>
+              {type === 'vitals' && (
+                <>
+                  <View style={[styles.tableRow, styles.tableHeader]}>
+                    <Text style={styles.tableCell}>Tarih/Saat</Text>
+                    <Text style={styles.tableCell}>Sıcaklık</Text>
+                    <Text style={styles.tableCell}>Tansiyon</Text>
+                    <Text style={styles.tableCell}>O2 Sat</Text>
+                    <Text style={styles.tableCell}>Mama</Text>
+                    <Text style={styles.tableCell}>Su</Text>
+                    <Text style={styles.tableCell}>Notlar</Text>
                   </View>
-                ))}
-              </>
-            )}
-          </View>
+                  {data.map((record) => (
+                    <View key={record.id} style={styles.tableRow}>
+                      <Text style={styles.tableCell}>{record.date} {record.time}</Text>
+                      <Text style={styles.tableCell}>{record.temperature}°C</Text>
+                      <Text style={styles.tableCell}>{record.bloodPressure.systolic}/{record.bloodPressure.diastolic}</Text>
+                      <Text style={styles.tableCell}>%{record.oxygenSaturation}</Text>
+                      <Text style={styles.tableCell}>{record.formulaAmount} ml</Text>
+                      <Text style={styles.tableCell}>{record.waterAmount} ml</Text>
+                      <Text style={styles.tableCell}>{record.notes}</Text>
+                    </View>
+                  ))}
+                </>
+              )}
+            </View>
+          )}
         </Page>
       </Document>
     </PDFViewer>
